@@ -1,12 +1,14 @@
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient, PutCommand, ScanCommand } from "@aws-sdk/lib-dynamodb";
 import { randomUUID } from "crypto";
+import { CONFIG } from "./config.js";
 
-const TABLE_NAME = process.env.DYNAMODB_TABLE_NAME || "form-demo-submissions";
-const REGION = process.env.AWS_REGION || "us-east-1";
-const API_ORIGIN = process.env.API_ORIGIN || "http://localhost:3000";
+const clientConfig: any = { region: CONFIG.REGION };
+if (CONFIG.ENDPOINT_URL) {
+  clientConfig.endpoint = CONFIG.ENDPOINT_URL;
+}
 
-const client = new DynamoDBClient({ region: REGION });
+const client = new DynamoDBClient(clientConfig);
 const docClient = DynamoDBDocumentClient.from(client);
 
 interface Submission {
@@ -25,7 +27,7 @@ interface ApiResponse {
 
 function corsHeaders() {
   return {
-    "Access-Control-Allow-Origin": API_ORIGIN,
+    "Access-Control-Allow-Origin": CONFIG.API_ORIGIN,
     "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type",
     "Content-Type": "application/json",
@@ -53,9 +55,9 @@ async function handleSubmit(body: unknown): Promise<ApiResponse> {
     const email = String(data.email ?? "").trim();
     const message = String(data.message ?? "").trim();
 
-    if (!name || name.length < 1 || name.length > 100) {
+    if (!name || name.length < CONFIG.VALIDATION.NAME_MIN || name.length > CONFIG.VALIDATION.NAME_MAX) {
       return response(400, {
-        error: "Invalid name (1-100 characters required)",
+        error: `Invalid name (${CONFIG.VALIDATION.NAME_MIN}-${CONFIG.VALIDATION.NAME_MAX} characters required)`,
       });
     }
 
@@ -63,9 +65,9 @@ async function handleSubmit(body: unknown): Promise<ApiResponse> {
       return response(400, { error: "Invalid email address" });
     }
 
-    if (!message || message.length < 1 || message.length > 500) {
+    if (!message || message.length < CONFIG.VALIDATION.MESSAGE_MIN || message.length > CONFIG.VALIDATION.MESSAGE_MAX) {
       return response(400, {
-        error: "Invalid message (1-500 characters required)",
+        error: `Invalid message (${CONFIG.VALIDATION.MESSAGE_MIN}-${CONFIG.VALIDATION.MESSAGE_MAX} characters required)`,
       });
     }
 
@@ -79,7 +81,7 @@ async function handleSubmit(body: unknown): Promise<ApiResponse> {
 
     await docClient.send(
       new PutCommand({
-        TableName: TABLE_NAME,
+        TableName: CONFIG.TABLE_NAME,
         Item: submission,
       })
     );
@@ -97,7 +99,7 @@ async function handleList(): Promise<ApiResponse> {
   try {
     const result = await docClient.send(
       new ScanCommand({
-        TableName: TABLE_NAME,
+        TableName: CONFIG.TABLE_NAME,
       })
     );
 
