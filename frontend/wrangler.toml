@@ -1,0 +1,15 @@
+name = "form-demo"
+main = "index.html"
+type = "javascript"
+
+[env.sandbox]
+name = "form-demo-sbx"
+routes = [
+  { pattern = "form-demo-sbx.pages.dev", zone_name = "dr4w.io" }
+]
+
+[env.production]
+name = "form-demo"
+routes = [
+  { pattern = "form-demo.dr4w.io", zone_name = "dr4w.io" }
+]

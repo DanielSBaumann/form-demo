@@ -1,0 +1,71 @@
+name: Deploy
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build & Deploy
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install backend dependencies
+        run: npm ci
+        working-directory: backend
+
+      - name: Build Lambda
+        run: npm run build
+        working-directory: backend
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::809411919562:role/github-oidc-form-demo
+          aws-region: us-east-1
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v2
+        with:
+          terraform_version: latest
+
+      - name: Terraform Init
+        run: terraform init
+        working-directory: infra
+        env:
+          AWS_REGION: us-east-1
+
+      - name: Terraform Plan
+        run: terraform plan -out=plan.tfplan
+        working-directory: infra
+        env:
+          AWS_REGION: us-east-1
+
+      - name: Terraform Apply
+        run: terraform apply -auto-approve plan.tfplan
+        working-directory: infra
+        env:
+          AWS_REGION: us-east-1
+
+      - name: Deploy Frontend
+        run: npx wrangler pages deploy frontend --project-name form-demo-sbx
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
