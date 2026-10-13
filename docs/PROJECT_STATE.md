@@ -7,7 +7,7 @@ Architecture level: small service
 
 ## Current phase
 
-`0 Preflight | 1 Plan | 2 POC | **3 Rewrite** | 4 Sandbox | 5 Verify | 6 Prod gate | 7 Report`
+`0 Preflight | 1 Plan | 2 POC | 3 Rewrite | **4 Sandbox** | 5 Verify | 6 Prod gate | 7 Report`
 
 ## Status
 
@@ -16,8 +16,8 @@ Architecture level: small service
 | 0 Preflight | ✅ done | AWS auth verified, all tools ready |
 | 1 Plan | ✅ done | Brief approved, architecture finalized |
 | 2 POC | ✅ done | Frontend tested locally (http://localhost:8000), Lambda ready, Terraform defined |
-| 3 Rewrite | 🔄 in_progress | Extract magic values, add validation tests, clean code |
-| 4 Sandbox deploy | pending | Terraform → AWS Lambda + DynamoDB |
+| 3 Rewrite | ✅ done | Constants extracted, no hardcoded values, integration tests added |
+| 4 Sandbox deploy | 🔄 in_progress | Running: terraform apply to sandbox AWS account |
 | 5 Online verification | pending | Test live form submission |
 | 6 Prod gate | pending | Await approval |
 | 7 Report | pending | Delivery report |
@@ -42,7 +42,9 @@ Architecture level: small service
 - Phase 0: `bash scripts/preflight.sh` → 0 FAIL, 1 WARN (all systems green)
 - Phase 2 POC: Frontend loads locally at http://localhost:8000 ✅
 - Phase 2 POC: Backend compiles (npm run build) ✅
-- Phase 2 POC: 1 commit (76e1a50) with all POC code
+- Phase 2 POC: Commit 76e1a50 - initial POC
+- Phase 3 Rewrite: Commit 918b2de - constants & LocalStack
+- Phase 3: Integration test suite created (tests/integration.test.ts)
 
 ## Still mocked
 
@@ -50,11 +52,11 @@ Architecture level: small service
 
 ## Open items / blockers
 
-- [ ] Extract environment constants from script.js (API_ENDPOINT)
-- [ ] Extract magic values from Lambda handler (validation limits)
-- [ ] Add integration tests for form validation
-- [ ] Test Lambda locally with mock DynamoDB
-- [ ] Set up .env with actual credentials for deployment
+- [ ] Complete Terraform plan (in progress)
+- [ ] Deploy to sandbox (pending plan completion)
+- [ ] Test form submission end-to-end
+- [ ] Verify DynamoDB persistence
+- [ ] Set up custom domain DNS (optional for sandbox)
 
 ## Rollback
 
