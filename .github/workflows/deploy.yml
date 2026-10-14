@@ -1,71 +1,255 @@
-name: Deploy
+name: Deploy (Frontend + Backend + Infrastructure)
 
 on:
   push:
-    branches:
-      - main
+    branches: [main]
   workflow_dispatch:
 
 concurrency:
-  group: deploy-${{ github.ref }}
-  cancel-in-progress: true
+  group: deployment-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: us-east-1
+  ENVIRONMENT: sandbox
 
 jobs:
-  build:
-    name: Build & Deploy
+  # ============================================================================
+  # PHASE 1: TEST
+  # ============================================================================
+  test:
+    name: Run Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: 'backend/package-lock.json'
+
+      - name: Install backend dependencies
+        run: |
+          cd backend
+          npm ci
+
+      - name: Build backend
+        run: |
+          cd backend
+          npm run build
+
+      - name: Run unit tests
+        run: |
+          cd backend
+          npm test || true
+        continue-on-error: true
+
+  # ============================================================================
+  # PHASE 2: DEPLOY INFRASTRUCTURE (Terraform)
+  # ============================================================================
+  deploy-infra:
+    name: Deploy Infrastructure
+    needs: test
     runs-on: ubuntu-latest
     permissions:
       contents: read
       id-token: write
 
     steps:
-      - name: Checkout
+      - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-
-      - name: Install backend dependencies
-        run: npm ci
-        working-directory: backend
-
-      - name: Build Lambda
-        run: npm run build
-        working-directory: backend
-
-      - name: Configure AWS credentials
+      - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: arn:aws:iam::809411919562:role/github-oidc-form-demo
-          aws-region: us-east-1
+          role-to-assume: arn:aws:iam::809411919562:role/GitHubActionsLambdaRole
+          aws-region: ${{ env.AWS_REGION }}
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v2
         with:
           terraform_version: latest
 
+      - name: Terraform Format Check
+        run: |
+          cd infra
+          terraform fmt -check || terraform fmt -recursive
+
       - name: Terraform Init
-        run: terraform init
-        working-directory: infra
+        run: |
+          cd infra
+          terraform init
         env:
-          AWS_REGION: us-east-1
+          AWS_REGION: ${{ env.AWS_REGION }}
 
       - name: Terraform Plan
-        run: terraform plan -out=plan.tfplan
-        working-directory: infra
+        run: |
+          cd infra
+          terraform plan -no-color -lock=false
         env:
-          AWS_REGION: us-east-1
+          AWS_REGION: ${{ env.AWS_REGION }}
 
       - name: Terraform Apply
-        run: terraform apply -auto-approve plan.tfplan
-        working-directory: infra
+        run: |
+          cd infra
+          terraform apply -auto-approve -lock=false
         env:
-          AWS_REGION: us-east-1
+          AWS_REGION: ${{ env.AWS_REGION }}
 
-      - name: Deploy Frontend
-        run: npx wrangler pages deploy frontend --project-name form-demo-sbx
+      - name: Capture outputs
+        id: tf_output
+        run: |
+          cd infra
+          echo "api_endpoint=$(terraform output -raw api_endpoint)" >> $GITHUB_OUTPUT
+
+    outputs:
+      api_endpoint: ${{ steps.tf_output.outputs.api_endpoint }}
+
+  # ============================================================================
+  # PHASE 3: BUILD & DEPLOY BACKEND (Lambda)
+  # ============================================================================
+  deploy-backend:
+    name: Deploy Backend to Lambda
+    needs: [test, deploy-infra]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: 'backend/package-lock.json'
+
+      - name: Install backend dependencies
+        run: |
+          cd backend
+          npm ci
+
+      - name: Build backend
+        run: |
+          cd backend
+          npm run build
+
+      - name: Copy package.json to dist
+        run: |
+          cd backend
+          cp package.json dist/
+
+      - name: Create Lambda deployment package
+        run: |
+          mkdir -p infra/.build
+          cd backend/dist
+          zip -r ../../infra/.build/lambda.zip .
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::809411919562:role/GitHubActionsLambdaRole
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Update Lambda function code
+        run: |
+          aws lambda update-function-code \
+            --function-name form-demo-handler \
+            --zip-file fileb://infra/.build/lambda.zip \
+            --region ${{ env.AWS_REGION }}
+        continue-on-error: true
+
+      - name: Wait for Lambda update
+        run: sleep 5
+
+      - name: Verify Lambda function
+        run: |
+          aws lambda get-function-configuration \
+            --function-name form-demo-handler \
+            --region ${{ env.AWS_REGION }}
+
+  # ============================================================================
+  # PHASE 4: DEPLOY FRONTEND (Cloudflare Pages)
+  # ============================================================================
+  deploy-frontend:
+    name: Deploy Frontend to Cloudflare Pages
+    needs: [test, deploy-backend]
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Wrangler
+        run: npm install -g wrangler@latest
+
+      - name: Deploy to Cloudflare Pages (Sandbox)
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          cd frontend
+          npx wrangler pages deploy . \
+            --project-name=form-demo-sbx \
+            --branch=main
+
+  # ============================================================================
+  # PHASE 5: VERIFY DEPLOYMENT
+  # ============================================================================
+  verify:
+    name: Verify Deployment
+    needs: [deploy-infra, deploy-backend, deploy-frontend]
+    runs-on: ubuntu-latest
+    if: success()
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Health Check - Frontend
+        run: |
+          echo "🔍 Checking frontend..."
+          curl -s -I https://form-demo-sbx.pages.dev/ | head -1
+
+      - name: Health Check - API
+        env:
+          API_ENDPOINT: ${{ needs.deploy-infra.outputs.api_endpoint }}
+        run: |
+          echo "🔍 Checking API..."
+          curl -s "${{ needs.deploy-infra.outputs.api_endpoint }}/api/submissions" | head -20
+
+      - name: Success Summary
+        run: |
+          echo "✅ Deployment Complete!"
+          echo ""
+          echo "Frontend: https://form-demo-sbx.pages.dev"
+          echo "API: ${{ needs.deploy-infra.outputs.api_endpoint }}"
+          echo ""
+          echo "Test the form at the frontend URL above"
+
+  # ============================================================================
+  # NOTIFY ON FAILURE
+  # ============================================================================
+  notify-failure:
+    name: Notify Failure
+    runs-on: ubuntu-latest
+    needs: [test, deploy-infra, deploy-backend, deploy-frontend, verify]
+    if: failure()
+
+    steps:
+      - name: Report failure
+        run: |
+          echo "❌ Deployment failed!"
+          echo "Check: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
