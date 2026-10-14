@@ -32,9 +32,6 @@ resource "aws_dynamodb_table" "submissions" {
   name           = var.dynamodb_table_name
   billing_mode   = "PAY_PER_REQUEST"
   hash_key       = "id"
-  stream_specification {
-    stream_view_type = "NEW_AND_OLD_IMAGES"
-  }
 
   attribute {
     name = "id"
@@ -45,76 +42,14 @@ resource "aws_dynamodb_table" "submissions" {
     enabled = true
   }
 
-  ttl {
-    attribute_name = "expiresAt"
-    enabled        = false
-  }
-
   tags = {
     Name = "${var.project}-submissions"
   }
 }
 
-# Lambda Execution Role
-resource "aws_iam_role" "lambda_role" {
+# Use manually created Lambda execution role
+data "aws_iam_role" "lambda_role" {
   name = "${var.project}-lambda-role"
-
-  assume_role_policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Action = "sts:AssumeRole"
-        Effect = "Allow"
-        Principal = {
-          Service = "lambda.amazonaws.com"
-        }
-      }
-    ]
-  })
-}
-
-# Lambda DynamoDB Policy
-resource "aws_iam_role_policy" "lambda_dynamodb_policy" {
-  name = "${var.project}-lambda-dynamodb"
-  role = aws_iam_role.lambda_role.id
-
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Action = [
-          "dynamodb:PutItem",
-          "dynamodb:GetItem",
-          "dynamodb:Query",
-          "dynamodb:Scan",
-          "dynamodb:UpdateItem"
-        ]
-        Effect   = "Allow"
-        Resource = aws_dynamodb_table.submissions.arn
-      }
-    ]
-  })
-}
-
-# Lambda CloudWatch Logs Policy
-resource "aws_iam_role_policy" "lambda_logs_policy" {
-  name = "${var.project}-lambda-logs"
-  role = aws_iam_role.lambda_role.id
-
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Action = [
-          "logs:CreateLogGroup",
-          "logs:CreateLogStream",
-          "logs:PutLogEvents"
-        ]
-        Effect   = "Allow"
-        Resource = "arn:aws:logs:${var.region}:*:*"
-      }
-    ]
-  })
 }
 
 # Archive Lambda code
@@ -128,7 +63,7 @@ data "archive_file" "lambda_code" {
 resource "aws_lambda_function" "handler" {
   filename         = data.archive_file.lambda_code.output_path
   function_name    = "${var.project}-handler"
-  role             = aws_iam_role.lambda_role.arn
+  role             = data.aws_iam_role.lambda_role.arn
   handler          = "index.handler"
   source_code_hash = data.archive_file.lambda_code.output_base64sha256
   runtime          = "nodejs20.x"
@@ -138,7 +73,6 @@ resource "aws_lambda_function" "handler" {
   environment {
     variables = {
       DYNAMODB_TABLE_NAME = aws_dynamodb_table.submissions.name
-      AWS_REGION          = var.region
       API_ORIGIN          = var.api_cors_origin
     }
   }
@@ -165,11 +99,11 @@ resource "aws_apigatewayv2_api" "api" {
 
 # API Gateway Integration
 resource "aws_apigatewayv2_integration" "lambda_integration" {
-  api_id           = aws_apigatewayv2_api.api.id
-  integration_type = "AWS_PROXY"
-  integration_method = "POST"
+  api_id             = aws_apigatewayv2_api.api.id
+  integration_type   = "AWS_PROXY"
   payload_format_version = "2.0"
-  target           = aws_lambda_function.handler.arn
+
+  integration_uri = aws_lambda_function.handler.invoke_arn
 }
 
 # Lambda Permission for API Gateway

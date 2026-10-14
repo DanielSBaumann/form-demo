@@ -4,6 +4,12 @@ variable "project" {
   default     = "form-demo"
 }
 
+variable "env" {
+  description = "Environment name (sandbox/prod)"
+  type        = string
+  default     = "sandbox"
+}
+
 variable "environment" {
   description = "Environment name (sandbox/prod)"
   type        = string
