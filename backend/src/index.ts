@@ -138,7 +138,10 @@ interface LambdaEvent {
 
 export async function handler(event: LambdaEvent): Promise<ApiResponse> {
   const method = event.requestContext.http.method;
-  const path = event.requestContext.http.path;
+  let path = event.requestContext.http.path;
+
+  // Remove stage name from path if present (e.g., /sandbox/api/submit → /api/submit)
+  path = path.replace(/^\/[a-z0-9-]+\//, '/');
 
   console.log(`${method} ${path}`);
 

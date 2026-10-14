@@ -7,7 +7,7 @@ Architecture level: small service
 
 ## Current phase
 
-`0 Preflight | 1 Plan | 2 POC | 3 Rewrite | **4 Sandbox** | 5 Verify | 6 Prod gate | 7 Report`
+`0 Preflight | 1 Plan | 2 POC | 3 Rewrite | 4 Sandbox | **5 Verify** | 6 Prod gate | 7 Report`
 
 ## Status
 
@@ -16,9 +16,9 @@ Architecture level: small service
 | 0 Preflight | ✅ done | AWS auth verified, all tools ready |
 | 1 Plan | ✅ done | Brief approved, architecture finalized |
 | 2 POC | ✅ done | Frontend tested locally (http://localhost:8000), Lambda ready, Terraform defined |
-| 3 Rewrite | ✅ done | Constants extracted, no hardcoded values, integration tests added |
-| 4 Sandbox deploy | 🔄 in_progress | Running: terraform apply to sandbox AWS account |
-| 5 Online verification | pending | Test live form submission |
+| 3 Rewrite | ✅ done | Constants extracted, no hardcoded values, integration tests (8/8 passing) added |
+| 4 Sandbox deploy | ✅ done | All 14 resources created in AWS sandbox |
+| 5 Online verification | 🔄 in_progress | Testing form submission against live API |
 | 6 Prod gate | pending | Await approval |
 | 7 Report | pending | Delivery report |
 
@@ -34,8 +34,8 @@ Architecture level: small service
 | Env | URL | Hosting | Resources (tagged) | Cost/month |
 |---|---|---|---|---|
 | local | `http://localhost:3000` | N/A | None | $0 |
-| sandbox | `form-demo-sbx.pages.dev` | Cloudflare Pages + Lambda | Lambda, API GW, DynamoDB | $0 (free tier) |
-| prod | `form-demo.dr4w.io` | Cloudflare Pages + Lambda | Lambda, API GW, DynamoDB | < $1 |
+| sandbox | **https://ki694yjl43.execute-api.us-east-1.amazonaws.com/sandbox** | AWS Lambda + API GW + DynamoDB | ✅ All deployed | $0 (free tier) |
+| prod | TBD | Cloudflare Pages + Lambda | TBD | < $1 |
 
 ## Test evidence
 
